@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>생산관리 대시보드</title>
+
+  <!-- CDN Libraries -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js"></script>
+
+  <style>
+    body { background:#f8fafc; }
+    .drop-active { border-color:#2563eb !important; background:#eff6ff !important; }
+    .table-wrap { max-height: 520px; overflow:auto; }
+    th { position:sticky; top:0; z-index:1; }
+    @media print {
+      #uploadSection, #pdfBtn { display:none !important; }
+      .table-wrap { max-height:none; overflow:visible; }
+    }
+  </style>
+</head>
+
+<body class="text-slate-800">
+  <div class="max-w-7xl mx-auto p-4 md:p-6">
+    <header class="mb-6 flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+      <div>
+        <p class="text-sm font-semibold text-blue-600">MANUFACTURING DAILY REPORT</p>
+        <h1 class="text-2xl md:text-3xl font-bold tracking-tight">생산관리 웹 대시보드</h1>
+        <p class="mt-1 text-sm text-slate-500">
+          생산량 · 불량률 · 비가동시간 엑셀 데이터를 한 화면에서 확인합니다.
+        </p>
+      </div>
+      <button id="pdfBtn"
+        class="inline-flex items-center justify-center rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+        disabled>
+        PDF 다운로드
+      </button>
+    </header>
+
+    <!-- Upload -->
+    <section id="uploadSection" class="mb-6">
+      <div id="dropZone"
+        class="rounded-2xl border-2 border-dashed border-slate-300 bg-white p-8 text-center shadow-sm transition cursor-pointer">
+        <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-2xl">📊</div>
+        <p class="font-semibold">엑셀 파일을 여기에 드래그 & 드롭하세요</p>
+        <p class="mt-1 text-sm text-slate-500">또는 클릭하여 .xlsx / .xls 파일 선택</p>
+        <input id="fileInput" type="file" accept=".xlsx,.xls" class="hidden" />
+      </div>
+
+      <div class="mt-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2 text-xs text-slate-500">
+        <p id="fileInfo">아직 업로드된 파일이 없습니다.</p>
+        <p>권장 열: 일자, 계획량, 실적량, 불량수(또는 불량률), 비가동시간</p>
+      </div>
+      <div id="message" class="hidden mt-3 rounded-xl px-4 py-3 text-sm"></div>
+    </section>
+
+    <!-- PDF target -->
+    <main id="dashboard">
+      <!-- KPI -->
+      <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <article class="rounded-2xl bg-white p-5 shadow-sm border border-slate-100">
+          <div class="flex justify-between items-start">
+            <div>
+              <p class="text-sm text-slate-500">계획량</p>
+              <p id="kpiPlan" class="mt-2 text-3xl font-bold">-</p>
+            </div>
+            <span class="rounded-xl bg-blue-50 px-3 py-2 text-blue-700">계획</span>
+          </div>
+          <p class="mt-3 text-xs text-slate-400">업로드 데이터 합계</p>
+        </article>
+
+        <article class="rounded-2xl bg-white p-5 shadow-sm border border-slate-100">
+          <div class="flex justify-between items-start">
+            <div>
+              <p class="text-sm text-slate-500">실적량</p>
+              <p id="kpiActual" class="mt-2 text-3xl font-bold">-</p>
+            </div>
+            <span class="rounded-xl bg-emerald-50 px-3 py-2 text-emerald-700">실적</span>
+          </div>
+          <p class="mt-3 text-xs text-slate-400">업로드 데이터 합계</p>
+        </article>
+
+        <article class="rounded-2xl bg-white p-5 shadow-sm border border-slate-100">
+          <div class="flex justify-between items-start">
+            <div>
+              <p class="text-sm text-slate-500">달성률</p>
+              <p id="kpiAchievement" class="mt-2 text-3xl font-bold">-</p>
+            </div>
+            <span class="rounded-xl bg-violet-50 px-3 py-2 text-violet-700">달성</span>
+          </div>
+          <p class="mt-3 text-xs text-slate-400">실적량 ÷ 계획량</p>
+        </article>
+
+        <article class="rounded-2xl bg-white p-5 shadow-sm border border-slate-100">
+          <div class="flex justify-between items-start">
+            <div>
+              <p class="text-sm text-slate-500">불량률</p>
+              <p id="kpiDefect" class="mt-2 text-3xl font-bold">-</p>
+            </div>
+            <span class="rounded-xl bg-rose-50 px-3 py-2 text-rose-700">품질</span>
+          </div>
+          <p class="mt-3 text-xs text-slate-400">불량수 ÷ 실적량 또는 불량률 가중평균</p>
+        </article>
+      </section>
+
+      <!-- Chart + side info -->
+      <section class="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+        <article class="lg:col-span-3 rounded-2xl bg-white p-5 shadow-sm border border-slate-100">
+          <div class="mb-4">
+            <h2 class="font-bold">일자별 생산량 추이</h2>
+            <p class="text-sm text-slate-500">일자별 계획량과 실적량 비교</p>
+          </div>
+          <div class="h-[340px]">
+            <canvas id="productionChart"></canvas>
+          </div>
+        </article>
+
+        <article class="rounded-2xl bg-white p-5 shadow-sm border border-slate-100">
+          <h2 class="font-bold">운영 요약</h2>
+          <dl class="mt-5 space-y-4">
+            <div class="border-b border-slate-100 pb-3">
+              <dt class="text-xs text-slate-500">데이터 건수</dt>
+              <dd id="rowCount" class="mt-1 text-xl font-bold">-</dd>
+            </div>
+            <div class="border-b border-slate-100 pb-3">
+              <dt class="text-xs text-slate-500">총 비가동시간</dt>
+              <dd id="downtimeTotal" class="mt-1 text-xl font-bold">-</dd>
+            </div>
+            <div>
+              <dt class="text-xs text-slate-500">사용 시트</dt>
+              <dd id="sheetName" class="mt-1 text-sm font-semibold break-words">-</dd>
+            </div>
+          </dl>
+        </article>
+      </section>
+
+      <!-- Table -->
+      <section class="rounded-2xl bg-white shadow-sm border border-slate-100 overflow-hidden">
+        <div class="p-5 border-b border-slate-100">
+          <h2 class="font-bold">엑셀 원본 데이터</h2>
+          <p class="text-sm text-slate-500">첫 번째 시트의 내용을 원본 열 순서대로 표시합니다.</p>
+        </div>
+        <div class="table-wrap">
+          <table class="min-w-full text-sm">
+            <thead id="tableHead" class="bg-slate-100 text-slate-600"></thead>
+            <tbody id="tableBody" class="divide-y divide-slate-100"></tbody>
+          </table>
+          <div id="emptyTable" class="p-10 text-center text-slate-400">
+            엑셀 파일을 업로드하면 데이터가 표시됩니다.
+          </div>
+        </div>
+      </section>
+
+      <footer class="mt-4 text-right text-xs text-slate-400">
+        <span id="generatedAt"></span>
+      </footer>
+    </main>
+  </div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const dropZone = $('dropZone');
+  const fileInput = $('fileInput');
+  const pdfBtn = $('pdfBtn');
+
+  let chart = null;
+  let currentRows = [];
+  let currentHeaders = [];
+
+  // 다양한 현장 엑셀 표기 대응
+  const FIELD_ALIASES = {
+    date: ['일자','날짜','생산일자','생산일','date','day'],
+    plan: ['계획량','계획','생산계획','계획수량','목표량','목표','plan','planned','target'],
+    actual: ['실적량','실적','생산량','생산실적','생산수량','양품포함생산량','actual','production','output'],
+    defectQty: ['불량수','불량수량','불량량','불량개수','불량','defectqty','defects','ng수량','ng'],
+    defectRate: ['불량률','불량율','defectrate','ng율','ng률'],
+    downtime: ['비가동시간','비가동','다운타임','정지시간','downtime','stop time']
+  };
+
+  function normalize(v) {
+    return String(v ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g,'')
+      .replace(/[_\-()%]/g,'');
+  }
+
+  function findHeader(headers, aliases) {
+    const normalized = headers.map(h => normalize(h));
+    for (const alias of aliases) {
+      const target = normalize(alias);
+      const exact = normalized.findIndex(h => h === target);
+      if (exact >= 0) return headers[exact];
+    }
+    for (const alias of aliases) {
+      const target = normalize(alias);
+      const partial = normalized.findIndex(h => h.includes(target) || target.includes(h));
+      if (partial >= 0) return headers[partial];
+    }
+    return null;
+  }
+
+  function toNumber(value) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (value === null || value === undefined || value === '') return 0;
+    const cleaned = String(value).replace(/,/g,'').replace(/%/g,'').trim();
+    const n = parseFloat(cleaned);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function formatNumber(n, maxDigits=0) {
+    return Number(n || 0).toLocaleString('ko-KR', { maximumFractionDigits:maxDigits });
+  }
+
+  function formatDate(value) {
+    if (value === null || value === undefined || value === '') return '';
+    // Excel serial date
+    if (typeof value === 'number' && value > 20000 && value < 80000) {
+      const d = XLSX.SSF.parse_date_code(value);
+      if (d) return `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+    }
+    if (value instanceof Date && !isNaN(value)) {
+      return value.toLocaleDateString('ko-KR');
+    }
+    return String(value);
+  }
+
+  function showMessage(text, type='info') {
+    const el = $('message');
+    el.classList.remove('hidden','bg-blue-50','text-blue-700','bg-amber-50','text-amber-700','bg-rose-50','text-rose-700');
+    if (type === 'warn') el.classList.add('bg-amber-50','text-amber-700');
+    else if (type === 'error') el.classList.add('bg-rose-50','text-rose-700');
+    else el.classList.add('bg-blue-50','text-blue-700');
+    el.textContent = text;
+  }
+
+  function hideMessage() {
+    $('message').classList.add('hidden');
+  }
+
+  function renderTable(headers, rows) {
+    $('emptyTable').classList.toggle('hidden', rows.length > 0);
+
+    $('tableHead').innerHTML = `
+      <tr>${headers.map(h => `<th class="px-4 py-3 text-left whitespace-nowrap font-semibold">${escapeHtml(h)}</th>`).join('')}</tr>
+    `;
+
+    $('tableBody').innerHTML = rows.map(row => `
+      <tr class="hover:bg-slate-50">
+        ${headers.map(h => `<td class="px-4 py-3 whitespace-nowrap">${escapeHtml(formatCell(row[h]))}</td>`).join('')}
+      </tr>
+    `).join('');
+  }
+
+  function formatCell(value) {
+    if (value === null || value === undefined) return '';
+    return String(value);
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replaceAll('&','&amp;')
+      .replaceAll('<','&lt;')
+      .replaceAll('>','&gt;')
+      .replaceAll('"','&quot;')
+      .replaceAll("'","&#039;");
+  }
+
+  function renderChart(rows, fields) {
+    const labels = rows.map((r, i) => fields.date ? formatDate(r[fields.date]) : String(i + 1));
+    const actual = rows.map(r => fields.actual ? toNumber(r[fields.actual]) : 0);
+    const plan = rows.map(r => fields.plan ? toNumber(r[fields.plan]) : 0);
+
+    if (chart) chart.destroy();
+
+    const datasets = [];
+    if (fields.plan) {
+      datasets.push({
+        label:'계획량',
+        data:plan,
+        backgroundColor:'rgba(148, 163, 184, 0.65)',
+        borderColor:'rgb(100, 116, 139)',
+        borderWidth:1,
+        borderRadius:5
+      });
+    }
+    datasets.push({
+      label:'실적량',
+      data:actual,
+      backgroundColor:'rgba(37, 99, 235, 0.75)',
+      borderColor:'rgb(29, 78, 216)',
+      borderWidth:1,
+      borderRadius:5
+    });
+
+    chart = new Chart($('productionChart'), {
+      type:'bar',
+      data:{ labels, datasets },
+      options:{
+        responsive:true,
+        maintainAspectRatio:false,
+        interaction:{ mode:'index', intersect:false },
+        plugins:{
+          legend:{ position:'top' },
+          tooltip:{
+            callbacks:{
+              label:(ctx) => `${ctx.dataset.label}: ${formatNumber(ctx.parsed.y)}`
+            }
+          }
+        },
+        scales:{
+          x:{
+            grid:{ display:false },
+            ticks:{ maxRotation:45, minRotation:0, autoSkip:true, maxTicksLimit:20 }
+          },
+          y:{
+            beginAtZero:true,
+            ticks:{ callback:(v) => Number(v).toLocaleString('ko-KR') }
+          }
+        }
+      }
+    });
+  }
+
+  function calculateAndRender(rows, headers, sheetName) {
+    const fields = {
+      date: findHeader(headers, FIELD_ALIASES.date),
+      plan: findHeader(headers, FIELD_ALIASES.plan),
+      actual: findHeader(headers, FIELD_ALIASES.actual),
+      defectQty: findHeader(headers, FIELD_ALIASES.defectQty),
+      defectRate: findHeader(headers, FIELD_ALIASES.defectRate),
+      downtime: findHeader(headers, FIELD_ALIASES.downtime)
+    };
+
+    const totalPlan = rows.reduce((s,r) => s + (fields.plan ? toNumber(r[fields.plan]) : 0), 0);
+    const totalActual = rows.reduce((s,r) => s + (fields.actual ? toNumber(r[fields.actual]) : 0), 0);
+    const achievement = totalPlan > 0 ? totalActual / totalPlan * 100 : 0;
+
+    let defectRate = 0;
+    if (fields.defectQty && totalActual > 0) {
+      const totalDefect = rows.reduce((s,r) => s + toNumber(r[fields.defectQty]), 0);
+      defectRate = totalDefect / totalActual * 100;
+    } else if (fields.defectRate) {
+      // 실적량이 있으면 가중 평균, 없으면 단순 평균
+      const rateRows = rows.filter(r => r[fields.defectRate] !== '' && r[fields.defectRate] != null);
+      if (fields.actual && rateRows.reduce((s,r)=>s+toNumber(r[fields.actual]),0) > 0) {
+        const denom = rateRows.reduce((s,r)=>s+toNumber(r[fields.actual]),0);
+        defectRate = rateRows.reduce((s,r) => {
+          let rate = toNumber(r[fields.defectRate]);
+          // 0.02 형태는 2%로 간주
+          if (rate > 0 && rate <= 1 && !String(r[fields.defectRate]).includes('%')) rate *= 100;
+          return s + toNumber(r[fields.actual]) * rate;
+        },0) / denom;
+      } else if (rateRows.length) {
+        defectRate = rateRows.reduce((s,r) => {
+          let rate = toNumber(r[fields.defectRate]);
+          if (rate > 0 && rate <= 1 && !String(r[fields.defectRate]).includes('%')) rate *= 100;
+          return s + rate;
+        },0) / rateRows.length;
+      }
+    }
+
+    const downtime = rows.reduce((s,r) => s + (fields.downtime ? toNumber(r[fields.downtime]) : 0), 0);
+
+    $('kpiPlan').textContent = fields.plan ? formatNumber(totalPlan) : '열 없음';
+    $('kpiActual').textContent = fields.actual ? formatNumber(totalActual) : '열 없음';
+    $('kpiAchievement').textContent = (fields.plan && fields.actual) ? `${achievement.toFixed(1)}%` : '계산 불가';
+    $('kpiDefect').textContent = (fields.defectQty || fields.defectRate) ? `${defectRate.toFixed(2)}%` : '열 없음';
+    $('rowCount').textContent = `${formatNumber(rows.length)}건`;
+    $('downtimeTotal').textContent = fields.downtime ? formatNumber(downtime, 2) : '열 없음';
+    $('sheetName').textContent = sheetName;
+    $('generatedAt').textContent = `생성: ${new Date().toLocaleString('ko-KR')}`;
+
+    renderChart(rows, fields);
+    renderTable(headers, rows);
+
+    const missing = [];
+    if (!fields.date) missing.push('일자');
+    if (!fields.plan) missing.push('계획량');
+    if (!fields.actual) missing.push('실적량');
+    if (!fields.defectQty && !fields.defectRate) missing.push('불량수/불량률');
+
+    if (missing.length) {
+      showMessage(`파일은 읽었습니다. 자동 인식하지 못한 열: ${missing.join(', ')}. 권장 열 이름을 확인해 주세요.`, 'warn');
+    } else {
+      hideMessage();
+    }
+  }
+
+  async function handleFile(file) {
+    if (!file) return;
+    if (!/\.(xlsx|xls)$/i.test(file.name)) {
+      showMessage('엑셀(.xlsx 또는 .xls) 파일만 업로드할 수 있습니다.', 'error');
+      return;
+    }
+
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type:'array', cellDates:true });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+
+      // raw:false 대신 defval을 사용해 원본 구조를 최대한 유지
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval:'', raw:true });
+
+      if (!rows.length) {
+        showMessage('첫 번째 시트에 읽을 수 있는 데이터가 없습니다.', 'error');
+        return;
+      }
+
+      const headers = Object.keys(rows[0]);
+      currentRows = rows;
+      currentHeaders = headers;
+
+      $('fileInfo').textContent = `${file.name} · ${(file.size / 1024).toFixed(1)} KB · ${rows.length}행`;
+      pdfBtn.disabled = false;
+
+      calculateAndRender(rows, headers, sheetName);
+    } catch (err) {
+      console.error(err);
+      showMessage(`파일 처리 중 오류가 발생했습니다: ${err.message}`, 'error');
+    }
+  }
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
+
+  ['dragenter','dragover'].forEach(evt => {
+    dropZone.addEventListener(evt, e => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.add('drop-active');
+    });
+  });
+
+  ['dragleave','drop'].forEach(evt => {
+    dropZone.addEventListener(evt, e => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.remove('drop-active');
+    });
+  });
+
+  dropZone.addEventListener('drop', e => {
+    const file = e.dataTransfer.files[0];
+    handleFile(file);
+  });
+
+  pdfBtn.addEventListener('click', async () => {
+    const originalText = pdfBtn.textContent;
+    pdfBtn.disabled = true;
+    pdfBtn.textContent = 'PDF 생성 중...';
+
+    try {
+      const element = $('dashboard');
+      const filename = `생산관리_대시보드_${new Date().toISOString().slice(0,10)}.pdf`;
+
+      await html2pdf().set({
+        margin:[8,8,8,8],
+        filename,
+        image:{ type:'jpeg', quality:0.96 },
+        html2canvas:{ scale:1.8, useCORS:true, backgroundColor:'#f8fafc', scrollY:0 },
+        jsPDF:{ unit:'mm', format:'a4', orientation:'landscape' },
+        pagebreak:{ mode:['avoid-all','css','legacy'] }
+      }).from(element).save();
+    } catch (err) {
+      console.error(err);
+      showMessage(`PDF 생성 중 오류가 발생했습니다: ${err.message}`, 'error');
+    } finally {
+      pdfBtn.disabled = false;
+      pdfBtn.textContent = originalText;
+    }
+  });
+})();
+</script>
+</body>
+</html>
