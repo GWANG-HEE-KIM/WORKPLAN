@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>
+<title>월간 주조 생산계획 흐름도</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: 왼쪽 단계 레일 + 가운데 공정 흐름(노드·화살표) + 판단 분기는 오른쪽 가지. 좁은 화면에선 한 줄로 쌓임 */
+:root {
+  --bg: #EDF0F3; --surface: #FFFFFF; --ink: #17212B; --muted: #5B6977; --line: #C3CCD5; --tint: #E2E8EE;
+  --steel: #2D4A65; --melt: #D9661C; --melt-soft: #FBE6D5; --ok: #2B7A57; --ok-soft: #DDF0E6; --warn: #B0372B; --warn-soft: #F8E1DE;
+  --f-body: "IBM Plex Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  --f-mono: "IBM Plex Mono", Consolas, "Courier New", monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #10161C; --surface: #19212A; --ink: #E5EBF1; --muted: #98A6B4; --line: #34424F; --tint: #222D38;
+  --steel: #8EB1D1; --melt: #F28C3E; --melt-soft: #3B2617; --ok: #63C497; --ok-soft: #173126; --warn: #F2806F; --warn-soft: #3A1D1A; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #10161C; --surface: #19212A; --ink: #E5EBF1; --muted: #98A6B4; --line: #34424F; --tint: #222D38;
+  --steel: #8EB1D1; --melt: #F28C3E; --melt-soft: #3B2617; --ok: #63C497; --ok-soft: #173126; --warn: #F2806F; --warn-soft: #3A1D1A; color-scheme: dark }
+
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--ink); font: 15px/1.6 var(--f-body); word-break: keep-all; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-block: 40px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 36px }
+h1, h2, h3 { margin: 0; text-wrap: balance; line-height: 1.3 }
+p { margin: 0 }
+.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums }
+.eyebrow { font-size: 12px; font-weight: 600; letter-spacing: .08em; color: var(--muted) }
+
+/* 머리 */
+header { display: grid; gap: 14px }
+header h1 { font-size: clamp(26px, 4.4vw, 38px); font-weight: 700; letter-spacing: -.01em }
+header h1 em { font-style: normal; color: var(--melt) }
+header .lead { color: var(--muted); max-width: 62ch }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin-top: 8px }
+.kpi { background: var(--surface); padding: 14px 16px; display: grid; gap: 2px }
+.kpi b { font-family: var(--f-mono); font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums }
+.kpi span { font-size: 13px; color: var(--muted) }
+.kpi.hot b { color: var(--melt) }
+
+/* 입력 자료 */
+.inputs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px }
+.file { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: grid; gap: 6px; align-content: start; min-width: 0 }
+.file .fn { font-family: var(--f-mono); font-size: 12px; color: var(--steel); overflow-wrap: anywhere }
+.file h3 { font-size: 15px }
+.file p { font-size: 13px; color: var(--muted) }
+.file.ref { border-style: dashed }
+.funnel { height: 34px; display: grid; place-items: center }
+.funnel svg { width: 100%; max-width: 760px; height: 34px }
+
+/* 흐름 */
+.flow { display: grid; gap: 0 }
+.row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 18px }
+.rail { position: relative; display: grid; justify-items: center; align-content: start; padding-top: 14px }
+.rail::after { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; background: var(--line); transform: translateX(-1px); z-index: 0 }
+.row:first-child .rail::after { top: 24px }
+.row:last-child .rail::after { bottom: auto; height: 24px }
+.phase { position: relative; z-index: 1; background: var(--bg); padding: 4px 0; font-size: 12px; font-weight: 600; letter-spacing: .08em; color: var(--muted); text-align: center }
+.body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 300px); gap: 16px; padding-bottom: 8px; align-items: start }
+.body.single { grid-template-columns: minmax(0, 1fr) }
+
+.node { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; display: grid; gap: 10px; min-width: 0 }
+.node .head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap }
+.step { font-family: var(--f-mono); font-size: 13px; font-weight: 600; color: var(--surface); background: var(--steel); border-radius: 4px; padding: 1px 7px }
+.node h2 { font-size: 19px; font-weight: 700 }
+.node p { color: var(--muted); font-size: 14px }
+.node.key { border-color: var(--melt); box-shadow: 0 0 0 1px var(--melt) }
+.node.key .step { background: var(--melt) }
+
+.arrow { height: 30px; display: grid; justify-items: start; padding-left: 36px }
+.arrow i { display: block; width: 2px; height: 22px; background: var(--steel); position: relative }
+.arrow i::after { content: ""; position: absolute; left: -5px; bottom: -8px; border: 6px solid transparent; border-top: 8px solid var(--steel); border-bottom: 0 }
+
+.order { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; counter-reset: o }
+.order li { counter-increment: o; display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; font-size: 14px }
+.order li::before { content: counter(o); font-family: var(--f-mono); font-size: 12px; font-weight: 600; width: 22px; height: 22px; border-radius: 50%; background: var(--tint); color: var(--steel); display: grid; place-items: center; margin-top: 1px }
+.order code, .node code, .branch code { font-family: var(--f-mono); font-size: 12.5px; background: var(--tint); border-radius: 3px; padding: 0 4px }
+
+.formula { background: var(--melt-soft); border-radius: 8px; padding: 14px 16px; font-family: var(--f-mono); font-size: clamp(13px, 1.9vw, 16px); font-weight: 600; line-height: 1.7; overflow-x: auto }
+.formula .op { color: var(--melt) }
+.formula small { display: block; font-family: var(--f-body); font-weight: 400; font-size: 12.5px; color: var(--muted); margin-top: 4px }
+.split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px }
+.split > div { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 4px; font-size: 13.5px }
+.split b { font-size: 14px }
+.yes { color: var(--ok); font-weight: 600 }
+.no { color: var(--warn); font-weight: 600 }
+
+/* 판단 */
+.decision { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 14px; align-items: center; background: var(--surface); border: 1px dashed var(--steel); border-radius: 10px; padding: 14px 18px }
+.diamond { width: 40px; height: 40px; transform: rotate(45deg); background: var(--steel); border-radius: 5px; margin: 7px; display: grid; place-items: center }
+.diamond span { transform: rotate(-45deg); color: var(--surface); font-weight: 700; font-size: 18px }
+.decision h3 { font-size: 16px }
+.decision p { font-size: 13.5px; color: var(--muted) }
+.decision .yn { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13.5px; margin-top: 4px }
+
+.branch { border-left: 3px solid var(--warn); background: var(--warn-soft); border-radius: 0 8px 8px 0; padding: 12px 14px; display: grid; gap: 8px; font-size: 13.5px; min-width: 0 }
+.branch h4 { margin: 0; font-size: 13px; color: var(--warn); letter-spacing: .02em }
+.branch ol { margin: 0; padding-left: 18px; display: grid; gap: 4px }
+.branch .loop { font-size: 12.5px; color: var(--muted); display: flex; gap: 6px; align-items: center }
+.branch .loop svg { flex: none }
+.note { border-left: 3px solid var(--steel); background: var(--tint); border-radius: 0 8px 8px 0; padding: 12px 14px; display: grid; gap: 6px; font-size: 13.5px; min-width: 0 }
+.note h4 { margin: 0; font-size: 13px; color: var(--steel) }
+
+table { border-collapse: collapse; width: 100%; font-size: 13px }
+th, td { padding: 5px 8px; text-align: left; border-bottom: 1px solid var(--line) }
+th { font-size: 12px; color: var(--muted); font-weight: 600 }
+td.r, th.r { text-align: right; font-family: var(--f-mono); font-variant-numeric: tabular-nums }
+.tbl { overflow-x: auto }
+
+/* 11월 주간 격주표 */
+.weeks { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px }
+.wk { border-radius: 6px; padding: 8px 10px; display: grid; gap: 2px; font-size: 13px; min-width: 0 }
+.wk .d { font-family: var(--f-mono); font-size: 12px; color: var(--muted) }
+.wk b { font-size: 13.5px }
+.wk.t { background: var(--melt-soft); border: 1px solid var(--melt) }
+.wk.s { background: var(--tint); border: 1px solid var(--steel) }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: var(--muted) }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px }
+
+/* 출력 */
+.outs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px }
+.out { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 2px; font-size: 13px; min-width: 0 }
+.out b { font-size: 14px }
+.out span { color: var(--muted) }
+
+/* 하단 두 칸 */
+.bottom { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; display: grid; gap: 12px; align-content: start; min-width: 0 }
+.panel h2 { font-size: 17px }
+.bars { display: grid; gap: 10px }
+.bar { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; align-items: center }
+.bar .v { font-family: var(--f-mono); font-weight: 600; font-size: 13px }
+.bar .track { display: grid; gap: 3px }
+.bar .fill { height: 14px; border-radius: 3px; background: var(--steel) }
+.bar.cur .fill { background: var(--melt) }
+.bar .cap { font-size: 12.5px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap }
+.bar .cap .num { color: var(--ink); font-weight: 600 }
+.run { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; counter-reset: r }
+.run li { counter-increment: r; display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 10px; font-size: 14px }
+.run li::before { content: counter(r); font-family: var(--f-mono); font-weight: 600; font-size: 12px; width: 26px; height: 26px; border-radius: 6px; background: var(--steel); color: var(--surface); display: grid; place-items: center }
+.run li span { display: block; color: var(--muted); font-size: 13px }
+.run code { font-family: var(--f-mono); font-size: 12.5px; overflow-wrap: anywhere }
+footer { font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 14px }
+
+@media (max-width: 900px) {
+  .inputs { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+  .body { grid-template-columns: minmax(0, 1fr) }
+  .bottom { grid-template-columns: minmax(0, 1fr) }
+  .outs { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+  .funnel { display: none }
+}
+@media (max-width: 560px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+  .inputs, .split { grid-template-columns: minmax(0, 1fr) }
+  .row { grid-template-columns: minmax(0, 1fr); gap: 6px }
+  .rail { justify-items: start; padding-top: 6px }
+  .rail::after { display: none }
+  .phase { background: none; color: var(--steel) }
+  .weeks { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+  .node { padding: 16px }
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">대신금속 금형공장 · 주조 생산계획 · 2026년 11월 계획 기준</div>
+    <h1>월간 주조 생산계획, <em>수주에서 일별 계획까지</em></h1>
+    <p class="lead">고객사 출하계획을 소재(금형) 품번으로 바꾸고, 인정 재고를 뺀 필요수량을 영업일에 나눠 배치하는 순서입니다. 같은 순서가 <span class="num">production_plan.ps1</span> 프로그램에 들어 있습니다.</p>
+    <div class="kpis">
+      <div class="kpi"><b>5</b><span>입력 자료 (엑셀)</span></div>
+      <div class="kpi"><b>21일</b><span>11월 영업일</span></div>
+      <div class="kpi hot"><b>53,332</b><span>11월 주조 계획 수량 (v3)</span></div>
+      <div class="kpi"><b>5건</b><span>월내 부족 품목 (12월 선행분)</span></div>
+    </div>
+  </header>
+
+  <section style="display:grid;gap:12px">
+    <div class="eyebrow">입력 자료</div>
+    <div class="inputs">
+      <div class="file"><div class="fn">월별수주현황_11월.xlsx</div><h3>수주·출하계획</h3><p>업체명, 품번, 품명. 11월 출하와 12월 출하 수량</p></div>
+      <div class="file"><div class="fn">재고현황_금형_재고여부.xlsx</div><h3>금형(소재) 재고</h3><p>고객사, 소재 품번, 재고 수량</p></div>
+      <div class="file"><div class="fn">재고현황_가공_재고여부.xlsx</div><h3>가공 재고</h3><p>품목구분(완제품 등), 품번의 출하대기 표시</p></div>
+      <div class="file"><div class="fn">2026년 11월 생산계획_v0.xlsx</div><h3>전월 계획 시트</h3><p>10월 계획 (단가인상분): 품목별 하루 생산수량</p></div>
+      <div class="file ref"><div class="fn">주조실적_2024~2026.xlsx</div><h3>주조 실적 <span style="font-weight:400;color:var(--muted)">(검증용)</span></h3><p class="num" style="font-family:var(--f-body)">19,067건. 실제 하루 평균과 비교</p></div>
+    </div>
+    <div class="funnel" aria-hidden="true">
+      <svg viewBox="0 0 760 34" preserveAspectRatio="none"><path d="M76 0 L380 28 M228 0 L380 28 M380 0 L380 28 M532 0 L380 28 M684 0 L380 28" stroke="var(--line)" stroke-width="2" fill="none"/><path d="M374 26 L380 34 L386 26 Z" fill="var(--steel)"/></svg>
+    </div>
+  </section>
+
+  <section class="flow" aria-label="생산계획 수립 흐름">
+    <!-- 1 매칭 -->
+    <div class="row">
+      <div class="rail"><div class="phase">정리</div></div>
+      <div>
+        <div class="body">
+          <div class="node">
+            <div class="head"><span class="step">1</span><h2>출하품번 → 소재품번 매칭</h2></div>
+            <p>수주는 완제품 품번, 주조는 소재 품번이라 이름이 다릅니다. 아래 순서로 먼저 맞는 것을 씁니다.</p>
+            <ol class="order">
+              <li><span>소재매핑표에 <b>확정_소재품번</b>이 있으면 그 값 사용</span></li>
+              <li><span>공백·기호·괄호를 지우고 같은지 비교 <code>5632480-01 → 563248001</code></span></li>
+              <li><span>끝 구간을 떼고 비교 (도면 개정·사양 차이)</span></li>
+              <li><span>LH/RH, PORT/STBD 좌우가 같은지 확인</span></li>
+              <li><span>남은 품번은 가장 비슷한 후보를 제시만 함</span></li>
+            </ol>
+            <p>소재 하나를 여러 출하품번이 같이 쓰면 한 그룹으로 묶어 출하량을 합칩니다.</p>
+          </div>
+          <div class="note">
+            <h4>확정된 매핑표</h4>
+            <p><span class="num">소재매핑표.csv</span> 31행. 사람이 한 번 확정하면 다음 달부터 그대로 씁니다.</p>
+          </div>
+        </div>
+        <div class="arrow"><i></i></div>
+        <div class="body">
+          <div class="decision">
+            <div class="diamond"><span>?</span></div>
+            <div>
+              <h3>모든 출하품번에 소재품번이 정해졌나?</h3>
+              <div class="yn"><span class="yes">예 → 2단계</span><span class="no">아니오 → 오른쪽 처리 후 다시 실행</span></div>
+            </div>
+          </div>
+          <div class="branch">
+            <h4>아니오일 때</h4>
+            <ol>
+              <li>'확인 필요' 시트에 표시</li>
+              <li>매핑표에 빈 확정란으로 자동 추가</li>
+              <li>담당자가 <b>확정_소재품번</b> 기입</li>
+            </ol>
+            <div class="loop"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2v3h-3" stroke="var(--warn)" stroke-width="1.6" fill="none"/></svg>1단계부터 다시 실행</div>
+            <p style="color:var(--muted);font-size:12.5px">현재 미확정: <span class="num">8M0162018</span> RING TRUST, <span class="num">8M0103941</span>. 좌우 확인: <span class="num">5139363</span>(LH) ← <span class="num">5632480</span>(RH 소재)</p>
+          </div>
+        </div>
+        <div class="arrow"><i></i></div>
+      </div>
+    </div>
+
+    <!-- 2 재고 -->
+    <div class="row">
+      <div class="rail"><div class="phase">정리</div></div>
+      <div>
+        <div class="body single">
+          <div class="node">
+            <div class="head"><span class="step">2</span><h2>인정 재고 집계</h2></div>
+            <div class="split">
+              <div><b>금형(소재) 재고</b><span class="yes">전량 인정</span></div>
+              <div><b>가공 재고</b><span>품목구분 <span class="yes">완제품</span> 또는 품번에 <span class="yes">출하대기</span> 표시분만 인정. <span class="no">가공 중 재고는 제외</span></span></div>
+            </div>
+          </div>
+        </div>
+        <div class="arrow"><i></i></div>
+      </div>
+    </div>
+
+    <!-- 3 필요수량 -->
+    <div class="row">
+      <div class="rail"><div class="phase">산출</div></div>
+      <div>
+        <div class="body">
+          <div class="node key">
+            <div class="head"><span class="step">3</span><h2>생산 필요수량 산출</h2></div>
+            <div class="formula">필요수량 <span class="op">=</span> (11월 출하 <span class="op">+</span> 12월 출하 <span class="op">×</span> 50%) <span class="op">×</span> 1.05 <span class="op">−</span> 인정 재고
+              <small>12월 출하의 50%를 미리 생산하고, 불량 대비 5%를 더합니다. 0 이하이면 이번 달 생산하지 않습니다.</small>
+            </div>
+          </div>
+          <div class="note">
+            <h4>바꿀 수 있는 값</h4>
+            <p><span class="num">설정.json</span>의 <code>익월선행비율 0.5</code>, <code>안전율 1.05</code>, 가공재고 인정 기준</p>
+          </div>
+        </div>
+        <div class="arrow"><i></i></div>
+      </div>
+    </div>
+
+    <!-- 4 일일 수량 -->
+    <div class="row">
+      <div class="rail"><div class="phase">산출</div></div>
+      <div>
+        <div class="body">
+          <div class="node">
+            <div class="head"><span class="step">4</span><h2>품목별 하루 생산수량 결정</h2></div>
+            <p>전월 계획 시트(10월 계획)에서 품목마다 가장 많이 쓴 하루 수량을 가져옵니다. 생산일수는 필요수량을 하루 수량으로 나눠 올림합니다.</p>
+            <div class="formula" style="font-size:14px">생산일수 <span class="op">=</span> ⌈ 필요수량 <span class="op">÷</span> 하루 생산수량 ⌉</div>
+          </div>
+          <div class="note">
+            <h4>실적과 비교 (최근 1년 일평균)</h4>
+            <div class="tbl"><table>
+              <thead><tr><th>품목</th><th class="r">계획</th><th class="r">실적</th></tr></thead>
+              <tbody>
+                <tr><td>SWIVEL BKT</td><td class="r">300</td><td class="r">212</td></tr>
+                <tr><td>5631540</td><td class="r">520</td><td class="r">380</td></tr>
+                <tr><td>트란솜 865/866</td><td class="r">340</td><td class="r">~265</td></tr>
+              </tbody>
+            </table></div>
+            <p style="font-size:12.5px;color:var(--muted)">계획이 실적보다 30% 이상 많으면 표시합니다.</p>
+          </div>
+        </div>
+        <div class="arrow"><i></i></div>
+      </div>
+    </div>
+
+    <!-- 5 배치 -->
+    <div class="row">
+      <div class="rail"><div class="phase">배치</div></div>
+      <div>
+        <div class="body single">
+          <div class="node">
+            <div class="head"><span class="step">5</span><h2>영업일에 생산일 배치</h2></div>
+            <p>11월 영업일 <b class="num">21</b>일 (주말 1, 7, 8, 14, 15, 21, 22, 28, 29일 제외). 하루 생산 부하가 고르게 되도록 연속된 날짜에 배치합니다. 스웨벨과 트란솜은 한 주씩 번갈아 생산합니다.</p>
+            <div class="weeks" aria-label="11월 격주 생산">
+              <div class="wk t"><span class="d">11/2 – 11/6</span><b>트란솜</b><span>865 · 866</span></div>
+              <div class="wk s"><span class="d">11/9 – 11/13</span><b>스웨벨</b><span>1401-850066</span></div>
+              <div class="wk t"><span class="d">11/16 – 11/20</span><b>트란솜</b><span>865 · 866</span></div>
+              <div class="wk s"><span class="d">11/23 – 11/27</span><b>스웨벨</b><span>1401-850066</span></div>
+              <div class="wk t"><span class="d">11/30</span><b>트란솜</b><span>865 · 866</span></div>
+            </div>
+            <div class="legend"><span><i style="background:var(--melt)"></i>트란솜 주 (첫 주 시작)</span><span><i style="background:var(--steel)"></i>스웨벨 주</span><span>주는 월요일 기준으로 셉니다</span></div>
+          </div>
+        </div>
+        <div class="arrow"><i></i></div>
+        <div class="body">
+          <div class="decision">
+            <div class="diamond"><span>?</span></div>
+            <div>
+              <h3>배치 가능한 날 안에 필요수량을 다 만들 수 있나?</h3>
+              <div class="yn"><span class="yes">예 → 6단계</span><span class="no">아니오 → 부족 수량 표시</span></div>
+            </div>
+          </div>
+          <div class="branch">
+            <h4>11월 부족 품목 (모두 12월 선행분)</h4>
+            <div class="tbl"><table>
+              <tbody>
+                <tr><td>822866 트란솜</td><td class="r">1,792</td></tr>
+                <tr><td>1401-850066 스웨벨</td><td class="r">1,788</td></tr>
+                <tr><td>822865 트란솜</td><td class="r">1,767</td></tr>
+                <tr><td>8M0114107</td><td class="r">195</td></tr>
+                <tr><td>8M0034196</td><td class="r">28</td></tr>
+              </tbody>
+            </table></div>
+            <p style="font-size:12.5px;color:var(--muted)">검토할 대응: 토요 특근, 선행 비율 하향, 설비 추가 배정</p>
+          </div>
+        </div>
+        <div class="arrow"><i></i></div>
+      </div>
+    </div>
+
+    <!-- 6 출력 -->
+    <div class="row">
+      <div class="rail"><div class="phase">출력</div></div>
+      <div>
+        <div class="body single">
+          <div class="node">
+            <div class="head"><span class="step">6</span><h2>계획서 출력</h2></div>
+            <p>엑셀 한 파일에 시트 3개, 그리고 매칭 결과 CSV를 만듭니다. 계획 시트는 10월 계획 (단가인상분)과 같은 양식입니다.</p>
+            <div class="outs">
+              <div class="out"><b>11월 주조 생산계획</b><span>품목 × 일자 수량표</span></div>
+              <div class="out"><b>산출근거</b><span>출하품번별 출하·재고·필요수량</span></div>
+              <div class="out"><b>확인 필요</b><span>미매칭, 좌우 불일치, 부족</span></div>
+              <div class="out"><b>품번매칭_결과.csv</b><span>매칭 방법과 상태</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="bottom">
+    <div class="panel">
+      <h2>규칙이 추가될 때마다 바뀐 11월 계획량</h2>
+      <div class="bars">
+        <div class="bar"><span class="v">v1</span><div class="track"><div class="fill" style="width:15.84%"></div><div class="cap"><span>11월 출하 기준 초안</span><span class="num">9,416</span></div></div></div>
+        <div class="bar"><span class="v">v2</span><div class="track"><div class="fill" style="width:100%"></div><div class="cap"><span>+ 12월 50% 선행, 가공재고는 완제품·출하대기만</span><span class="num">59,459</span></div></div></div>
+        <div class="bar cur"><span class="v">v3</span><div class="track"><div class="fill" style="width:89.7%"></div><div class="cap"><span>+ 10월 하루 생산수량, 스웨벨·트란솜 격주</span><span class="num">53,332</span></div></div></div>
+      </div>
+      <p style="font-size:12.5px;color:var(--muted)">막대 길이는 v2(59,459개)를 100%로 한 비율입니다. 현재 프로그램 결과는 v3와 같습니다.</p>
+    </div>
+    <div class="panel">
+      <h2>다음 달 실행 방법</h2>
+      <ol class="run">
+        <li><div>새 수주·재고 파일을 자료 폴더에 넣기<span>파일 이름이 바뀌면 설정.json에 반영</span></div></li>
+        <li><div><code>설정.json</code>에서 계획월, 휴무일 수정<span>격주 생산의 첫 주 품목도 여기서 지정</span></div></li>
+        <li><div><code>생산계획_실행.bat</code> 더블클릭<span>결과는 <code>결과\연-월\</code> 폴더에 저장되고 바로 열림</span></div></li>
+        <li><div>'확인 필요' 시트 확인 후 매핑표 확정<span>필요하면 다시 실행</span></div></li>
+      </ol>
+    </div>
+  </section>
+
+  <footer>근거 자료: 월별수주현황_11월, 재고현황(금형·가공)_재고여부, 2026년 11월 생산계획_v0, 주조실적_2024~2026. 수치는 11월_주조생산계획_v3 및 생산계획프로그램 실행 결과(2026-10-21) 기준입니다.</footer>
+</div>
+
+</body></html>
